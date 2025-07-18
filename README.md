@@ -19,34 +19,6 @@ CLI_Commander is a Python tool that manages interactive shell processes across d
 
 No additional dependencies required beyond Python 3.6+. The tool uses only standard library modules:
 
-```bash
-git clone <repository>
-cd CLI_Test
-```
-
-## Usage
-
-### Basic Commands
-
-#### Open a named process
-```bash
-python CLI_Commander.py --open --process_name demo
-```
-
-#### Run a command in an existing process
-```bash
-python CLI_Commander.py --process_name demo --command "echo Hello World"
-```
-
-#### List all active processes
-```bash
-python CLI_Commander.py --list
-```
-
-#### Close a named process
-```bash
-python CLI_Commander.py --close --process_name demo
-```
 
 ### Self-test Demo
 
@@ -149,13 +121,6 @@ Example output:
 
 ## Architecture
 
-### Core Components
-
-1. **Process Registry**: Global dictionary tracking all managed processes
-2. **Output Streaming**: Background threads for real-time output monitoring
-3. **Command Interface**: Argument parsing and command dispatch
-4. **Process Lifecycle**: Creation, monitoring, and termination management
-
 ### Key Functions
 
 - `open_process(process_name)`: Create and register a new shell process
@@ -164,48 +129,3 @@ Example output:
 - `close_process(process_name)`: Terminate and cleanup processes
 - `_stream_output()`: Background thread for output monitoring
 
-## Error Handling
-
-CLI_Commander handles various error conditions:
-
-- **Process not found**: When trying to use non-existent process names
-- **Process termination**: Automatic cleanup of terminated processes
-- **Command execution failures**: Graceful error reporting
-- **Resource cleanup**: Proper process termination and resource management
-
-## Limitations
-
-- **Platform-specific shells**: Uses `cmd` on Windows, `bash` on Unix-like systems
-- **Output buffering**: Some applications may buffer output differently
-- **Process persistence**: Processes don't persist across CLI_Commander restarts
-- **Encoding**: May have issues with non-ASCII characters in some environments
-
-## Use Cases
-
-- **Interactive development**: Managing Python/Node.js REPL sessions
-- **System administration**: Running multiple shell sessions for different tasks
-- **Testing and automation**: Scripted interaction with command-line tools
-- **Educational purposes**: Demonstrating process management concepts
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## License
-
-[Specify your license here]
-
-## Support
-
-For issues and questions:
-- Check the examples in this README
-- Review the source code comments
-- Open an issue in the repository
-
----
-
-*CLI_Commander - Simple, effective process management for interactive shells.*
