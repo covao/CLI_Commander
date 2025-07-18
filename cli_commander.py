@@ -54,7 +54,7 @@ def _stream_output(process_name: str, proc: subprocess.Popen):
             clean_line = line.rstrip()
             # Filter out Windows startup messages and prompts
             if clean_line and not _should_filter_output(clean_line):
-                print(f"{timestamp()} {process_name} {clean_line}")
+                print(f"{timestamp()} RESPONSE: {process_name} {clean_line}")
         else:
             break
 
@@ -92,7 +92,7 @@ def open_process(process_name: str):
         t = threading.Thread(target=_stream_output, args=(process_name, proc), daemon=True)
         t.start()
 
-        print(f"{timestamp()} SUCCESS: {process_name} opened")
+        print(f"{timestamp()} INFO: {process_name} opened")
         
         # Wait for shell to initialize and startup messages to complete
         time.sleep(0.1)
@@ -104,7 +104,7 @@ def open_process(process_name: str):
 
 
 def run_command(process_name: str, command: str):
-    """Send a command to a running process."""
+    """Send a command to a running process with timestamp and response tracking."""
     try:
         proc = PROCESSES.get(process_name)
         if not proc:
@@ -117,12 +117,11 @@ def run_command(process_name: str, command: str):
             del PROCESSES[process_name]
             return False
 
-        print(f"{timestamp()} COMMAND: {process_name} {command}")
+        print(f"{timestamp()} COMMAND: {command}")
         proc.stdin.write(command + "\n")
         proc.stdin.flush()
         # Brief wait to allow command to execute and output to be captured
         time.sleep(0.1)
-        print(f"{timestamp()} SUCCESS: Command executed in {process_name}")
         return True
         
     except Exception as e:
@@ -142,7 +141,7 @@ def list_processes():
         for process_name in list(PROCESSES.keys()):  # Use list() to avoid modification during iteration
             proc = PROCESSES[process_name]
             if proc.poll() is None:
-                print(f"{timestamp()} SUCCESS: {process_name} RUNNING (PID: {proc.pid})")
+                print(f"{timestamp()} INFO: {process_name} RUNNING (PID: {proc.pid})")
                 active_count += 1
             else:
                 print(f"{timestamp()} WARNING: {process_name} TERMINATED")
