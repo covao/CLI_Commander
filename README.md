@@ -141,7 +141,6 @@ Example output:
 19:09:26 INFO: demo opened
 19:09:26 COMMAND: demo echo Hello CLI_Commander
 19:09:26 RESPONSE: Command sent to demo
-19:09:26 demo Hello CLI_Commander
 19:09:26 INFO: Command executed in demo
 19:09:26 INFO: Active processes:
 19:09:26 INFO: demo RUNNING (PID: 5268)
