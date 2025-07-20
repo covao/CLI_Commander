@@ -18,7 +18,6 @@ CLI_Commander is a Python tool for managing persistent interactive shell process
 | `--close` | Close a named process |
 | `--close_all` | Close all active processes |
 | `--list` | List all active processes |
-(default: 0.2) |
 | `-h, --help` | Show help message |
 | `--test` | Run tests |
 ## Example
