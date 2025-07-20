@@ -1,237 +1,361 @@
 #!/usr/bin/env python3
-"""CLI_Commander.py: A simple cross‑platform process manager.
+"""
+CLI_Commander - Command Line Process Management Tool
+Command-line tool for managing persistent processes for Linux platforms.
 
-Overview:
-This tool manages interactive shell processes across different platforms.
-It allows you to:
-- Open named interactive shell sessions
-- Send commands to running sessions 
-- List all active sessions with their status
-- Close sessions gracefully or forcefully
 
-Key Features:
-- Cross-platform support (Windows cmd, Linux/Mac bash)
-- Real-time output streaming with timestamps
-- Background thread management for output monitoring
-- Process state tracking and error handling
-- Graceful and forceful termination options
+Usage Examples:
+    # Create a new process entry
+    python cli_commander.py --new --name my_process
+    # Start Python with interactive communication
+    python cli_commander.py --run --name py_repl --command "python"
+    # Send commands to Python process
+    python cli_commander.py --send --name py_repl --command "s = 'Hello World'"
+    python cli_commander.py --send --name py_repl --command "print(s)"
+    # Send a simple echo command
+    python cli_commander.py --run --name my_process --command "echo Hello! CLI Commander"
+    # List all processes
+    python cli_commander.py --list
+    # Close all processes
+    python cli_commander.py --close_all
+    
+    # Run test demonstration
+    python cli_commander.py --test
 
-Usage examples:
-  Open a named process:
-    python CLI_Commander.py --open --process_name demo
-
-  Run a command inside the named process:
-    python CLI_Commander.py --process_name demo --command "echo Hello"
-
-  List managed processes:
-    python CLI_Commander.py --list
-
-  Close the named process:
-    python CLI_Commander.py --close --process_name demo
 """
 
 import argparse
-import platform
 import subprocess
-import threading
-import time
-from datetime import datetime
+import os
 import sys
-
-# Global registry of running subprocesses
-PROCESSES = {}
-
-
-def timestamp() -> str:
-    """Return current time in HH:MM:SS format."""
-    return datetime.now().strftime('%H:%M:%S')
-
-
-def _stream_output(process_name: str, proc: subprocess.Popen):
-    """Continuously read subprocess stdout and print with timestamp."""
-    for line in iter(proc.stdout.readline, ''):
-        if line:
-            clean_line = line.rstrip()
-            # Filter out Windows startup messages and prompts
-            if clean_line and not _should_filter_output(clean_line):
-                print(f"{timestamp()} RESPONSE: {process_name} {clean_line}")
-        else:
-            break
+import time
+import tempfile
+import threading
+import signal
+import json
+import uuid
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Optional, Tuple, Any
+import re
 
 
-def _should_filter_output(line: str) -> bool:
-    """Check if output line should be filtered out."""
-    filters = [
-        "Microsoft Windows",
-        "(c) Microsoft Corporation",
-        "All rights reserved"
-    ]
-    # Only filter Windows startup messages, keep Python prompts and output
-    return any(filter_text in line for filter_text in filters)
+class UnifiedProcessManager:
+    """Unified process manager for Linux only (tmux-based REPL)."""
 
-
-def open_process(process_name: str):
-    """Start an interactive shell process and register it."""
-    try:
-        if process_name in PROCESSES:
-            print(f"{timestamp()} ERROR: {process_name} already open")
-            return False
-
-        shell_cmd = 'cmd' if platform.system() == 'Windows' else '/bin/bash'
-        proc = subprocess.Popen(
-            shell_cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1
+    @staticmethod
+    def start_detached_process(command: str) -> subprocess.Popen:
+        """Start detached process (Linux only)."""
+        return subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            preexec_fn=os.setsid
         )
-        PROCESSES[process_name] = proc
 
-        # Start background thread for stdout
-        t = threading.Thread(target=_stream_output, args=(process_name, proc), daemon=True)
-        t.start()
-
-        print(f"{timestamp()} INFO: {process_name} opened")
-        
-        # Wait for shell to initialize and startup messages to complete
-        time.sleep(0.1)
-        return True
-        
-    except Exception as e:
-        print(f"{timestamp()} ERROR: Failed to open {process_name} - {str(e)}")
-        return False
-
-
-def run_command(process_name: str, command: str):
-    """Send a command to a running process with timestamp and response tracking."""
-    try:
-        proc = PROCESSES.get(process_name)
-        if not proc:
-            print(f"{timestamp()} ERROR: {process_name} not found")
+    @staticmethod
+    def terminate_process(pid: int) -> bool:
+        """Terminate process (Linux only)."""
+        if not pid:
             return False
-
-        # Check if process is still alive
-        if proc.poll() is not None:
-            print(f"{timestamp()} ERROR: {process_name} process has terminated")
-            del PROCESSES[process_name]
-            return False
-
-        print(f"{timestamp()} COMMAND: {command}")
-        proc.stdin.write(command + "\n")
-        proc.stdin.flush()
-        # Brief wait to allow command to execute and output to be captured
-        time.sleep(0.1)
-        return True
-        
-    except Exception as e:
-        print(f"{timestamp()} ERROR: Failed to execute command in {process_name} - {str(e)}")
-        return False
-
-
-def list_processes():
-    """List all managed process names."""
-    try:
-        if not PROCESSES:
-            print(f"{timestamp()} INFO: No active processes")
-            return True
-        
-        print(f"{timestamp()} INFO: Active processes:")
-        active_count = 0
-        for process_name in list(PROCESSES.keys()):  # Use list() to avoid modification during iteration
-            proc = PROCESSES[process_name]
-            if proc.poll() is None:
-                print(f"{timestamp()} INFO: {process_name} RUNNING (PID: {proc.pid})")
-                active_count += 1
-            else:
-                print(f"{timestamp()} WARNING: {process_name} TERMINATED")
-                del PROCESSES[process_name]
-        
-        print(f"{timestamp()} INFO: Total active processes: {active_count}")
-        return True
-        
-    except Exception as e:
-        print(f"{timestamp()} ERROR: Failed to list processes - {str(e)}")
-        return False
-
-
-def close_process(process_name: str):
-    """Terminate a managed process."""
-    try:
-        proc = PROCESSES.pop(process_name, None)
-        if not proc:
-            print(f"{timestamp()} ERROR: {process_name} not found")
-            return False
-
-        pid = proc.pid  # Store PID before terminating
-
-        # Check if process is already terminated
-        if proc.poll() is not None:
-            print(f"{timestamp()} WARNING: {process_name} already terminated (PID: {pid})")
-            return True
-
-        # Try graceful exit first
         try:
-            proc.stdin.write("exit\n")
-            proc.stdin.flush()
+            os.kill(pid, signal.SIGTERM)
             time.sleep(0.1)
-        except Exception as e:
-            print(f"{timestamp()} WARNING: Could not send exit command to {process_name} - {str(e)}")
-
-        # Force terminate if still running
-        if proc.poll() is None:
-            proc.terminate()
             try:
-                proc.wait(timeout=2)
-                print(f"{timestamp()} INFO: {process_name} closed (PID: {pid}) (terminated)")
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                print(f"{timestamp()} INFO: {process_name} closed (PID: {pid}) (killed)")
-        else:
-            print(f"{timestamp()} INFO: {process_name} closed (PID: {pid})")
+                os.kill(pid, 0)
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+            return True
+        except Exception:
+            return False
 
-        return True
-        
-    except Exception as e:
-        print(f"{timestamp()} ERROR: Failed to close {process_name} - {str(e)}")
+    @staticmethod
+    def is_process_running(pid: int) -> bool:
+        """Check if process is running (Linux only)."""
+        if not pid:
+            return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except:
+            return False
+
+
+
+
+
+class CLI_Commander:
+    """Linux only: tmux-based REPL process manager"""
+
+    def __init__(self):
+        self.process_file = "unified_process_info.json"
+        self.processes = {}
+        self.process_manager = UnifiedProcessManager()
+        self.load_processes()
+
+    def log(self, message: str, process_name: str = "CLI_Commander", log_type: str = "INFO"):
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[{timestamp}] [{process_name}] [{log_type}] {message}")
+
+    def save_processes(self):
+        try:
+            with open(self.process_file, 'w', encoding='utf-8') as f:
+                json.dump(self.processes, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            self.log(f"Failed to save processes: {e}", log_type="ERROR")
+
+    def load_processes(self):
+        if not os.path.exists(self.process_file):
+            return
+        try:
+            with open(self.process_file, 'r', encoding='utf-8') as f:
+                self.processes = json.load(f)
+        except Exception as e:
+            self.log(f"Failed to load processes: {e}", log_type="WARNING")
+            self.processes = {}
+
+    def send_to_process(self, name: str, command: str) -> bool:
+        """Send command to tmux session. For REPL (python, bash), use send-keys directly. For others, use output redirection."""
+        if name not in self.processes:
+            self.log(f"Process '{name}' not found", log_type="ERROR")
+            return False
+        info = self.processes[name]
+        if not info.get('tmux_session'):
+            self.log(f"Process '{name}' is not a tmux session", log_type="ERROR")
+            return False
+        session = info['tmux_session']
+        # REPL detection: command is python, python3, bash, sh, zsh, etc.
+        repl_keywords = ["python", "python3", "bash", "sh", "zsh"]
+        is_repl = False
+        proc_cmd = info.get('command', '') or ''
+        for kw in repl_keywords:
+            if proc_cmd.strip().startswith(kw):
+                is_repl = True
+                break
+        try:
+            if is_repl:
+                # Send command
+                send_cmd = f"tmux send-keys -t {session} '{command}' Enter"
+                subprocess.run(send_cmd, shell=True, check=True)
+                time.sleep(0.2)
+
+                # Get output after sending command (capture all)
+                capture_cmd = f"tmux capture-pane -pt {session}"
+                result = subprocess.run(capture_cmd, shell=True, check=True, stdout=subprocess.PIPE, text=True)
+                output = result.stdout.strip()
+                if not output:
+                    output = "(No output)"
+                # Show only diff: keep previous RESPONSE and output only the diff
+                prev_output = info.get('last_repl_output', '')
+                if prev_output and output != prev_output:
+                    # Extract diff (only new part)
+                    prev_lines = prev_output.splitlines()
+                    curr_lines = output.splitlines()
+                    # Find start position of diff
+                    diff_start = 0
+                    for i in range(min(len(prev_lines), len(curr_lines))):
+                        if prev_lines[i] != curr_lines[i]:
+                            break
+                        diff_start = i + 1
+                    diff_lines = curr_lines[diff_start:]
+                    diff_str = '\n'.join(diff_lines).strip()
+                    if not diff_str:
+                        diff_str = "(No output)"
+                    self.log(f"{diff_str}", process_name=name, log_type="RESPONSE")
+                else:
+                    # On first run or if all lines match, output all
+                    self.log(f"{output}", process_name=name, log_type="RESPONSE")
+                # Save current output
+                info['last_repl_output'] = output
+                self.save_processes()
+                return True
+            else:
+                # Non-REPL: use existing temp file method
+                tmpfile = f"/tmp/cli_commander_{name}_output.txt"
+                safe_command = command.strip()
+                wrapped_cmd = f"({safe_command}) > {tmpfile} 2>&1"
+                send_cmd = f"tmux send-keys -t {session} \"{wrapped_cmd}\" Enter"
+                subprocess.run(send_cmd, shell=True, check=True)
+                time.sleep(0.2)
+                output = ""
+                if os.path.exists(tmpfile):
+                    with open(tmpfile, 'r', encoding='utf-8', errors='replace') as f:
+                        output = f.read().strip()
+                    os.remove(tmpfile)
+                self.log(f"{output}", process_name=name, log_type="RESPONSE")
+                return True
+        except Exception as e:
+            self.log(f"tmux send error: {e}", log_type="ERROR")
+            return False
+
+    def execute_command(self, action: str, name: Optional[str] = None, command: Optional[str] = None, wait_time: float = 0.2) -> bool:
+        """Unified command executor for all actions."""
+        if action == "send":
+            # Only sleep after sending command, handled inside send_to_process
+            return self.send_to_process(name, command)
+
+        if action == "new":
+            if name in self.processes:
+                info = self.processes[name]
+                status = "running" if self.process_manager.is_process_running(info.get('pid')) else "not running"
+                self.log(f"Process '{name}' already exists and is {status}")
+                return True
+            # Start bash when creating a new process
+            self.processes[name] = {'pid': None, 'command': None, 'start_time': None}
+            self.save_processes()
+            self.log(f"Created new process entry: {name}")
+            # Start bash as run
+            return self.execute_command("run", name, "bash", wait_time)
+
+        if action == "run":
+            if name not in self.processes:
+                self.log(f"Process '{name}' not found", log_type="ERROR")
+                return False
+            safe_command = command.strip()
+            self.log(f"{safe_command}", process_name=name, log_type="COMMAND")
+            session = f"cli_{name}"
+            # Check if tmux session exists
+            check_cmd = f"tmux has-session -t {session}"
+            session_exists = subprocess.run(check_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+            try:
+                if not session_exists:
+                    # Create new session
+                    tmux_cmd = f"tmux new-session -d -s {session} '{safe_command}'"
+                    subprocess.run(tmux_cmd, shell=True, check=True)
+                    get_pid_cmd = f"tmux list-panes -t {session} -F '#{{pane_pid}}'"
+                    result = subprocess.run(get_pid_cmd, shell=True, check=True, stdout=subprocess.PIPE, text=True)
+                    pid = int(result.stdout.strip().splitlines()[0])
+                    start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    self.processes[name].update({
+                        'pid': pid,
+                        'command': safe_command,
+                        'start_time': start_time,
+                        'tmux_session': session
+                    })
+                    self.save_processes()
+                    self.log(f"tmux session started (PID: {pid}, session: {session})", process_name=name, log_type="RESPONSE")
+                    return True
+                else:
+                    # Send command to existing session (sleep handled in send_to_process)
+                    return self.send_to_process(name, command)
+            except Exception as e:
+                self.log(f"Failed to run command: {e}", log_type="ERROR")
+                return False
+
+        if action == "close":
+            if not name or name not in self.processes:
+                self.log(f"Process '{name}' not found", log_type="ERROR")
+                return False
+            info = self.processes[name]
+            session = info.get('tmux_session')
+            pid = info.get('pid')
+            # Kill tmux session if exists
+            if session:
+                kill_cmd = f"tmux kill-session -t {session}"
+                subprocess.run(kill_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Kill process if still running
+            if pid and self.process_manager.is_process_running(pid):
+                self.process_manager.terminate_process(pid)
+            self.log(f"Closed process: {name}")
+            del self.processes[name]
+            self.save_processes()
+            return True
+
+        if action == "close_all":
+            names = list(self.processes.keys())
+            for pname in names:
+                self.execute_command("close", pname, None, 0)
+            self.log("All processes closed.")
+            return True
+
+        if action == "list":
+            if name:
+                info = self.processes.get(name)
+                if not info:
+                    self.log(f"Process '{name}' not found", log_type="ERROR")
+                    return False
+                self.log(f"Process '{name}': {json.dumps(info, ensure_ascii=False, indent=2)}")
+            else:
+                if not self.processes:
+                    self.log("No processes found.")
+                for pname, info in self.processes.items():
+                    self.log(f"Process '{pname}': {json.dumps(info, ensure_ascii=False, indent=2)}")
+            return True
+
+        self.log(f"Unknown action: {action}", log_type="ERROR")
         return False
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='CLI_Commander process manager')
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument('--open', action='store_true', help='Open a named process')
-    group.add_argument('--close', action='store_true', help='Close a named process')
-    group.add_argument('--list', action='store_true', help='List processes')
-    parser.add_argument('--process_name', default='default', help='Process name')
-    parser.add_argument('--command', help='Command to run inside process')
 
-    return parser.parse_args()
+def run_test():
+    """Test function demonstrating unified CLI_Commander commands."""
+    commander = CLI_Commander()
+    
+    commander.log("Starting Unified CLI_Commander test...")
+    commander.execute_command("new", "test_process")
+    
+
+    test_cmd = "echo 'Hello Unified CLI_Commander'"
+    commander.execute_command("run", "test_process", test_cmd, 1.0)
+
+    # Additional echo test as requested
+    echo_cmd = "echo Hello! CLI Commander"
+    commander.execute_command("run", "test_process", echo_cmd, 1.0)
+    
+    commander.execute_command("list")
+    commander.execute_command("close_all")
+    commander.log("Unified test completed!")
 
 
 def main():
-    args = parse_args()
+    """Main function to parse arguments and execute unified CLI_Commander actions."""
+    parser = argparse.ArgumentParser(description="CLI_Commander - Unified Process Manager")
+    parser.add_argument('--new', action='store_true', help='Create new process')
+    parser.add_argument('--run', action='store_true', help='Run command in tmux session (create or send)')
+    parser.add_argument('--close', action='store_true', help='Close specific process')
+    parser.add_argument('--close_all', action='store_true', help='Close all processes')
+    parser.add_argument('--list', action='store_true', help='List processes')
+    parser.add_argument('--test', action='store_true', help='Run test function')
+    parser.add_argument('--name', type=str, help='Process name')
+    parser.add_argument('--command', type=str, help='Command to execute')
+    parser.add_argument('--wait', type=float, default=0, help='Wait time in seconds')
+    
+    args = parser.parse_args()
+    commander = CLI_Commander()
+    
+    if args.new:
+        if not args.name:
+            commander.log("--name required for --new", log_type="ERROR")
+            return 1
+        commander.execute_command('new', args.name, None, args.wait)
+        return 0
+    if args.run:
+        if not args.name or not args.command:
+            commander.log("--name and --command required for --run", log_type="ERROR")
+            return 1
+        commander.execute_command('run', args.name, args.command, args.wait)
+        return 0
+    if args.close:
+        if not args.name:
+            commander.log("--name required for --close", log_type="ERROR")
+            return 1
+        commander.execute_command('close', args.name, None, args.wait)
+        return 0
+    if args.close_all:
+        commander.execute_command('close_all', None, None, args.wait)
+        return 0
+    if args.list:
+        commander.execute_command('list', args.name, None, args.wait)
+        return 0
+    if args.test:
+        run_test()
+        return 0
+    parser.print_help()
+    return 0
 
-    if len(sys.argv) == 1:
-        # Self‑test when no arguments are provided
-        demo = 'demo'
-        open_process(demo)
-        run_command(demo, 'echo Hello CLI_Commander')
-        list_processes()
-        close_process(demo)
-        return
 
-    if args.open:
-        open_process(args.process_name)
-    elif args.close:
-        close_process(args.process_name)
-    elif args.list:
-        list_processes()
-    elif args.command:
-        run_command(args.process_name, args.command)
-    else:
-        print('No action specified. Use -h for help.')
-
-
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    sys.exit(main())
